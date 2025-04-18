@@ -1,0 +1,3 @@
+DebugSize,DebugRVA,MajorImageVersion,MajorOSVersion,ExportRVA,ExportSize,IatVRA,MajorLinkerVersion,MinorLinkerVersion,NumberOfSections,SizeOfStackReserve,DllCharacteristics,ResourceSize,BitcoinAddresses
+0,0,1,6,0,0,4096,2,25,4,1048576,8464,212992,0
+0,0,1,6,0,0,4096,2,25,3,1048576,8464,204800,1
