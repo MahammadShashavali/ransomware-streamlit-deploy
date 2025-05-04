@@ -1,18 +1,35 @@
-import streamlit as st
 import os
-import pefile
+import sys
+import streamlit as st
 import pandas as pd
 import joblib
+import pefile
 
-# Load model and scaler
+# ✅ Must be the first Streamlit command
+st.set_page_config(page_title="Ransomware Detector", layout="centered")
+
+# Add src/ to import path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from src.feature_engineering import scale_features
+from src.predictutil import load_model_and_scaler
+
+# === Constants ===
 MODEL_PATH = "models/lightgbm_model.pkl"
 SCALER_PATH = "models/scaler.pkl"
-model = joblib.load(MODEL_PATH)
-scaler = joblib.load(SCALER_PATH)
+UPLOAD_DIR = "watch_folder"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-# Extract features from uploaded PE file
-def extract_pe_features(pe):
+# === Load Model & Scaler ===
+@st.cache_resource
+def load_artifacts():
+    return load_model_and_scaler(MODEL_PATH, SCALER_PATH)
+
+model, scaler = load_artifacts()
+
+# === PE Feature Extractor ===
+def extract_pe_features(file_path):
     try:
+        pe = pefile.PE(file_path)
         return {
             "DebugSize": pe.OPTIONAL_HEADER.DATA_DIRECTORY[6].Size,
             "DebugRVA": pe.OPTIONAL_HEADER.DATA_DIRECTORY[6].VirtualAddress,
@@ -30,36 +47,31 @@ def extract_pe_features(pe):
             "BitcoinAddresses": 0
         }
     except Exception as e:
-        st.error(f"Feature extraction failed: {e}")
+        st.error(f"⚠️ Failed to parse PE: {e}")
         return None
 
-# Streamlit UI
-st.set_page_config(page_title="Ransomware Detector", layout="centered")
-st.title("🛡️ Ransomware Detection Web App")
-st.write("Upload a `.exe` or `.dll` file to check if it's malicious.")
+# === Streamlit UI ===
+st.title("🔐 Ransomware Detection App")
+st.markdown("Upload a Windows `.exe` or `.dll` file to detect if it's **Ransomware** or **Benign** using a trained ML model.")
 
-uploaded_file = st.file_uploader("Upload File", type=["exe", "dll"])
+uploaded_file = st.file_uploader("📁 Upload a PE File", type=["exe", "dll"])
 
 if uploaded_file:
-    with open("temp_uploaded_file.exe", "wb") as f:
+    file_path = os.path.join(UPLOAD_DIR, uploaded_file.name)
+    with open(file_path, "wb") as f:
         f.write(uploaded_file.getbuffer())
+    st.success(f"✅ File uploaded: `{uploaded_file.name}`")
 
-    try:
-        pe = pefile.PE("temp_uploaded_file.exe", fast_load=True)
-        pe.parse_data_directories()
+    features = extract_pe_features(file_path)
+    if features:
+        df = pd.DataFrame([features])
+        scaled = scale_features(df, scaler)
+        prediction = model.predict(scaled)[0]
+        probability = model.predict_proba(scaled)[0][1]
 
-        features = extract_pe_features(pe)
-        if features:
-            df = pd.DataFrame([features])
-            scaled = scaler.transform(df)
-            prediction = model.predict(scaled)[0]
-            prob = model.predict_proba(scaled)[0][1]
+        label = "🛑 Ransomware" if prediction == 1 else "✅ Benign"
+        st.markdown(f"### 🧠 Prediction: **{label}**")
+        st.markdown(f"### 🔍 Probability: **{probability:.2%}**")
 
-            st.success(f"🔍 Prediction: {'Ransomware' if prediction == 1 else 'Benign'}")
-            st.info(f"🧠 Probability of being Ransomware: {prob:.4f}")
-
-            st.json(features)
-    except Exception as e:
-        st.error(f"Failed to analyze file: {e}")
-
-    os.remove("temp_uploaded_file.exe")
+        st.subheader("📊 Extracted PE Header Features")
+        st.dataframe(df)

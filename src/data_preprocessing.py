@@ -6,37 +6,41 @@ def load_and_preprocess_data(input_path: str, output_path: str) -> pd.DataFrame:
     df = pd.read_csv(input_path)
     print(f"[INFO] Raw data loaded from {input_path}. Shape: {df.shape}")
 
-    # Drop unnecessary columns
+    # Drop columns if they exist
     drop_cols = ["FileName", "md5Hash", "Machine"]
-    df.drop(columns=drop_cols, inplace=True, errors='ignore')
+    existing_drops = [col for col in drop_cols if col in df.columns]
+    if existing_drops:
+        df.drop(columns=existing_drops, inplace=True)
+        print(f"[INFO] Dropped columns: {existing_drops}")
 
     # Remove duplicates
+    before = df.shape[0]
     df.drop_duplicates(inplace=True)
+    after = df.shape[0]
+    print(f"[INFO] Removed {before - after} duplicate rows")
 
-    # Handle missing values
+    # Fill missing values
+    missing = df.isnull().sum().sum()
+    if missing > 0:
+        print(f"[INFO] Filling {missing} missing values with 0")
     df.fillna(0, inplace=True)
 
-    # Convert target column to binary if not already
+    # Convert Benign column to Label (0 = benign, 1 = ransomware)
     if 'Benign' in df.columns:
         df['Label'] = df['Benign'].apply(lambda x: 0 if x == 1 else 1)
         df.drop(columns=['Benign'], inplace=True)
+        print("[INFO] Converted 'Benign' to binary 'Label'")
 
-    # Ensure the output directory exists
-    output_dir = os.path.dirname(output_path)
-    os.makedirs(output_dir, exist_ok=True)
+    # Ensure output directory exists
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-    # Save the cleaned data
+    # Save cleaned data
     df.to_csv(output_path, index=False)
-
-    # Confirm file saved
-    if os.path.exists(output_path):
-        print(f"[SUCCESS] Preprocessed data saved to: {output_path}")
-    else:
-        print(f"[ERROR] Failed to save data at: {output_path}")
+    print(f"[SUCCESS] Preprocessed data saved to: {output_path}")
 
     return df
 
-# Standalone execution
+# Standalone run
 if __name__ == "__main__":
     input_path = "data/raw/data_file.csv"
     output_path = "data/processed/preprocessed_data.csv"

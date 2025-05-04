@@ -1,7 +1,9 @@
 import os
 import sys
 import time
+import shutil
 import threading
+import datetime
 import joblib
 import pandas as pd
 import pefile
@@ -9,20 +11,26 @@ from plyer import notification
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-# Fix path to import from src/
+# Add project root to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from src.feature_engineering import scale_features
 from src.predictutil import load_model_and_scaler
 
+# === Configuration ===
 WATCH_FOLDER = "watch_folder"
 MODEL_PATH = "models/lightgbm_model.pkl"
 SCALER_PATH = "models/scaler.pkl"
+REAL_EXE_SOURCE = r"C:\Windows\System32\cmd.exe"
+REAL_DLL_SOURCE = r"C:\Windows\System32\kernel32.dll"
 
-# Ensure folder exists
+# Create watch folder if it doesn't exist
 os.makedirs(WATCH_FOLDER, exist_ok=True)
 
+# Load model and scaler
+print("📦 Loading model and scaler...")
 model, scaler = load_model_and_scaler(MODEL_PATH, SCALER_PATH)
 
+# === PE Feature Extractor ===
 def extract_pe_features(file_path):
     try:
         pe = pefile.PE(file_path)
@@ -43,13 +51,14 @@ def extract_pe_features(file_path):
             "BitcoinAddresses": 0
         }
     except Exception as e:
-        print(f"⚠️ Failed to extract PE features: {e}")
+        print(f"⚠️ Failed to extract PE features from {file_path}: {e}")
         return None
 
-class CombinedHandler(FileSystemEventHandler):
+# === Monitor Handler ===
+class RansomwareMonitor(FileSystemEventHandler):
     def on_created(self, event):
-        if not event.is_directory and event.src_path.endswith(".exe"):
-            print(f"\n📁 New file detected: {event.src_path}")
+        if not event.is_directory and event.src_path.lower().endswith((".exe", ".dll")):
+            print(f"\n📁 Detected: {event.src_path}")
             features = extract_pe_features(event.src_path)
             if features:
                 df = pd.DataFrame([features])
@@ -57,34 +66,52 @@ class CombinedHandler(FileSystemEventHandler):
                 prediction = model.predict(scaled)[0]
                 label = "Ransomware" if prediction == 1 else "Benign"
                 print(f"🧠 Prediction: {label}")
+
                 if prediction == 1:
                     notification.notify(
-                        title="🚨 Ransomware Detected!",
-                        message=os.path.basename(event.src_path),
+                        title="🚨 Ransomware Detected",
+                        message=f"{os.path.basename(event.src_path)} is suspicious!",
                         timeout=5
                     )
 
-def drop_simulated_exe():
-    time.sleep(5)  # Give the monitor time to start
-    fake_pe = bytearray([0x4D, 0x5A, 0x90, 0x00, 0x03, 0x00] + [0x00]*1024)
-    file_path = os.path.join(WATCH_FOLDER, "auto_simulated.exe")
-    with open(file_path, "wb") as f:
-        f.write(fake_pe)
-    print(f"✅ Simulated .exe dropped: {file_path}")
+    def on_modified(self, event):
+        self.on_created(event)  # Trigger prediction on overwrite too
 
+# === Auto-drop EXE and DLL ===
+def drop_test_files():
+    time.sleep(3)  # Ensure monitor is running
+    timestamp = datetime.datetime.now().strftime("%H%M%S")
+
+    # EXE
+    exe_dst = os.path.join(WATCH_FOLDER, f"auto_valid_{timestamp}.exe")
+    try:
+        shutil.copy(REAL_EXE_SOURCE, exe_dst)
+        print(f"✅ EXE file copied: {exe_dst}")
+    except Exception as e:
+        print(f"❌ Failed to copy EXE: {e}")
+
+    # DLL
+    dll_dst = os.path.join(WATCH_FOLDER, f"auto_valid_{timestamp}.dll")
+    try:
+        shutil.copy(REAL_DLL_SOURCE, dll_dst)
+        print(f"✅ DLL file copied: {dll_dst}")
+    except Exception as e:
+        print(f"❌ Failed to copy DLL: {e}")
+
+# === Main Runner ===
 if __name__ == "__main__":
-    print("🛡️ Starting combined real-time monitor with auto drop...")
+    print("🛡️ Advanced monitoring with EXE & DLL support started...")
 
     observer = Observer()
-    observer.schedule(CombinedHandler(), path=WATCH_FOLDER, recursive=False)
+    observer.schedule(RansomwareMonitor(), path=WATCH_FOLDER, recursive=False)
     observer.start()
 
-    # Start dropper in separate thread
-    threading.Thread(target=drop_simulated_exe, daemon=True).start()
+    threading.Thread(target=drop_test_files, daemon=True).start()
 
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
         observer.stop()
+        print("\n🛑 Monitoring stopped.")
     observer.join()

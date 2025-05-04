@@ -1,56 +1,81 @@
 import os
 import joblib
-import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
-from lightgbm import LGBMClassifier
+from typing import Tuple
 
-# Paths
-MODEL_PATH = "models/lightgbm_model.pkl"  # or "models/random_forest_model.pkl"
+# ========================
+# Default Paths
+# ========================
+MODEL_PATH = "models/best_model.pkl"
 SCALER_PATH = "models/scaler.pkl"
 
-def load_model_and_scaler(model_path, scaler_path):
+# ========================
+# Feature Columns
+# ========================
+FEATURE_COLUMNS = [
+    'DebugSize', 'DebugRVA', 'MajorImageVersion', 'MajorOSVersion', 'ExportRVA',
+    'ExportSize', 'IatVRA', 'MajorLinkerVersion', 'MinorLinkerVersion',
+    'NumberOfSections', 'SizeOfStackReserve', 'DllCharacteristics',
+    'ResourceSize', 'BitcoinAddresses'
+]
+
+# ========================
+# Load Model and Scaler
+# ========================
+def load_model_and_scaler(model_path: str, scaler_path: str):
     print("📦 Loading scaler and model...")
-    if not os.path.exists(model_path) or not os.path.exists(scaler_path):
-        raise FileNotFoundError("❌ Model or scaler file not found.")
+    
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"❌ Model file not found at: {model_path}")
+    if not os.path.exists(scaler_path):
+        raise FileNotFoundError(f"❌ Scaler file not found at: {scaler_path}")
     
     model = joblib.load(model_path)
     scaler = joblib.load(scaler_path)
+    
     return model, scaler
 
-def predict_from_input(data_dict):
-    model, scaler = load_model_and_scaler(MODEL_PATH, SCALER_PATH)
+# ========================
+# Predict from Dictionary Input
+# ========================
+def predict_from_input(data_dict: dict, model_path: str = MODEL_PATH, scaler_path: str = SCALER_PATH) -> Tuple[str, float]:
+    model, scaler = load_model_and_scaler(model_path, scaler_path)
 
-    # Define the feature columns
-    columns = [
-        'DebugSize', 'DebugRVA', 'MajorImageVersion', 'MajorOSVersion', 'ExportRVA',
-        'ExportSize', 'IatVRA', 'MajorLinkerVersion', 'MinorLinkerVersion',
-        'NumberOfSections', 'SizeOfStackReserve', 'DllCharacteristics',
-        'ResourceSize', 'BitcoinAddresses'
-    ]
+    # Convert to DataFrame
+    input_df = pd.DataFrame([data_dict], columns=FEATURE_COLUMNS)
 
-    input_df = pd.DataFrame([data_dict], columns=columns)
-
-    # Scale the features
+    # Scale the input
     scaled_input = scaler.transform(input_df)
 
-    # Predict
+    # Make prediction
     prediction = model.predict(scaled_input)[0]
-    prob = model.predict_proba(scaled_input)[0][1]  # Probability of being ransomware
+    probability = model.predict_proba(scaled_input)[0][1]
 
     label = "Ransomware" if prediction == 1 else "Benign"
     print(f"\n📊 Prediction: {label}")
-    print(f"🧪 Probability: {prob:.4f}")
+    print(f"🧪 Probability: {probability:.4f}")
 
-    return label, prob
+    return label, probability
 
+# ========================
+# Example Standalone Run
+# ========================
 if __name__ == "__main__":
-    # 🔧 Example input - you can customize this or connect to real-time
     sample_input = {
-        'DebugSize': 0, 'DebugRVA': 0, 'MajorImageVersion': 1, 'MajorOSVersion': 5,
-        'ExportRVA': 0, 'ExportSize': 0, 'IatVRA': 4096, 'MajorLinkerVersion': 9,
-        'MinorLinkerVersion': 0, 'NumberOfSections': 5, 'SizeOfStackReserve': 1048576,
-        'DllCharacteristics': 0, 'ResourceSize': 512, 'BitcoinAddresses': 0
+        'DebugSize': 0,
+        'DebugRVA': 0,
+        'MajorImageVersion': 1,
+        'MajorOSVersion': 5,
+        'ExportRVA': 0,
+        'ExportSize': 0,
+        'IatVRA': 4096,
+        'MajorLinkerVersion': 9,
+        'MinorLinkerVersion': 0,
+        'NumberOfSections': 5,
+        'SizeOfStackReserve': 1048576,
+        'DllCharacteristics': 0,
+        'ResourceSize': 512,
+        'BitcoinAddresses': 0
     }
 
     predict_from_input(sample_input)
