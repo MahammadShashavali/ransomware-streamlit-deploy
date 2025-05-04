@@ -8,7 +8,7 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-# ✅ Streamlit configuration (must be first)
+# ✅ Streamlit configuration
 st.set_page_config(page_title="Ransomware Detector", layout="centered")
 
 # Add root to path for imports
@@ -19,8 +19,7 @@ from src.predictutil import load_model_and_scaler
 # === Email Alert Function ===
 def send_email_alert(subject, body, to_email):
     sender_email = "mahammadshashavali5@gmail.com"
-    sender_password = "Mahammad@123" \
-    ""  # Use Gmail App Password
+    sender_password = "Mahammad@123"  # Use App Password (highly recommended)
 
     msg = MIMEMultipart()
     msg["From"] = sender_email
@@ -71,9 +70,10 @@ model, scaler = load_artifacts()
 
 # === Streamlit UI ===
 st.title("🔐 Ransomware Detection System")
-st.markdown("Upload a Windows `.exe` or `.dll` file to predict if it's **Benign** or **Ransomware** using a trained LightGBM model.")
+st.markdown("Upload a Windows `.exe`, `.dll` file or a `.csv` to check for ransomware using machine learning.")
 
-uploaded_file = st.file_uploader("📁 Upload Portable Executable File", type=["exe", "dll"])
+# === File Upload for Executables ===
+uploaded_file = st.file_uploader("📁 Upload `.exe` or `.dll` file", type=["exe", "dll"])
 
 if uploaded_file:
     os.makedirs("watch_folder", exist_ok=True)
@@ -102,6 +102,42 @@ if uploaded_file:
                 to_email="receiver_email@gmail.com"
             )
 
-        # Display feature breakdown
+        # Show extracted features
         st.subheader("📊 Extracted PE Features")
         st.dataframe(df)
+
+# === CSV Upload for Batch Prediction ===
+st.markdown("---")
+st.subheader("📁 Upload CSV for Batch Prediction")
+
+csv_file = st.file_uploader("Upload a `.csv` file with PE header features", type=["csv"], key="csv")
+
+if csv_file:
+    try:
+        df = pd.read_csv(csv_file)
+
+        if 'Label' in df.columns:
+            df = df.drop(columns=['Label'])  # Drop if present
+
+        scaled = scale_features(df, scaler)
+        predictions = model.predict(scaled)
+        probabilities = model.predict_proba(scaled)[:, 1]
+
+        result_df = df.copy()
+        result_df["Prediction"] = ["Ransomware" if p == 1 else "Benign" for p in predictions]
+        result_df["Probability"] = [f"{p:.2%}" for p in probabilities]
+
+        st.success("✅ Batch prediction completed.")
+        st.dataframe(result_df)
+
+        # Offer download
+        csv_output = result_df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Download Results CSV",
+            data=csv_output,
+            file_name="ransomware_batch_results.csv",
+            mime="text/csv"
+        )
+
+    except Exception as e:
+        st.error(f"❌ Failed to process CSV file: {e}")
